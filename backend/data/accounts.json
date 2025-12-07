@@ -1,0 +1,9 @@
+[
+  {
+    "id": "ajzy1MUQwMhiaJ6aT2cMqP",
+    "name": "1",
+    "apiKey": "odeh0y5ozrx6szu4t1vorvr9jgw423ov2q7u1bu3p9djx3k99tfekuqma2pwqnpz",
+    "status": "valid",
+    "validationMessage": "{\n  \"message\": \"API key is valid and connected successfully to System.io.\",\n  \"statusCode\": 200,\n  \"originalResponse\": {\n    \"items\": [],\n    \"hasMore\": false\n  }\n}"
+  }
+]

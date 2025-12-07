@@ -1,0 +1,8 @@
+[
+  {
+    "id": "sample1",
+    "name": "Default Account",
+    "apiKey": "your_initial_omnisend_api_key_here",
+    "status": "valid"
+  }
+]
