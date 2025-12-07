@@ -1,9 +1,20 @@
 [
   {
-    "id": "ajzy1MUQwMhiaJ6aT2cMqP",
+    "id": "dkb5A97iTpznVwpF5fg4bn",
     "name": "1",
-    "apiKey": "odeh0y5ozrx6szu4t1vorvr9jgw423ov2q7u1bu3p9djx3k99tfekuqma2pwqnpz",
+    "siteUrl": "http://malubo.local",
+    "username": "admin",
+    "appPassword": "8KSq 4ldK cgVx zYyp fQNu S85q",
     "status": "valid",
-    "validationMessage": "{\n  \"message\": \"API key is valid and connected successfully to System.io.\",\n  \"statusCode\": 200,\n  \"originalResponse\": {\n    \"items\": [],\n    \"hasMore\": false\n  }\n}"
+    "validationMessage": "{\n  \"message\": \"Connected successfully to MailPoet!\",\n  \"listsFound\": 1,\n  \"statusCode\": 200\n}"
+  },
+  {
+    "id": "5YhCu1G6hsnRA5XXbaqDVP",
+    "name": "2",
+    "siteUrl": "http://sdsd.local",
+    "username": "admin",
+    "appPassword": "NnsS 7D7l iXcq 1hqz zbYJ uuGk",
+    "status": "valid",
+    "validationMessage": "{\n  \"message\": \"Connected successfully to MailPoet!\",\n  \"listsFound\": 1,\n  \"statusCode\": 200\n}"
   }
 ]

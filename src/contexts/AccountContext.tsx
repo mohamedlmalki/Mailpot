@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 import { useToast } from '@/components/ui/use-toast';
-import { useJob } from './JobContext'; // Import useJob
+import { useJob } from './JobContext';
 
-interface Account {
+export interface Account {
   id: string;
   name: string;
-  apiKey: string;
+  siteUrl: string;
+  username: string;
+  appPassword?: string; // Optional in frontend type if we want to hide it, but useful for auth check
   status: 'valid' | 'invalid' | 'unchecked';
   validationMessage?: string;
 }
@@ -16,9 +18,9 @@ interface AccountContextType {
   selectedAccount: Account | null;
   setSelectedAccount: (account: Account | null) => void;
   fetchAccounts: () => void;
-  addAccount: (name: string, apiKey: string) => Promise<void>;
+  addAccount: (name: string, siteUrl: string, username: string, appPassword: string) => Promise<void>;
   deleteAccount: (accountId: string) => Promise<void>;
-  validateKey: (account: Account) => Promise<Account>; // Return the updated account
+  validateKey: (account: Account) => Promise<Account>;
   isLoading: boolean;
 }
 
@@ -37,8 +39,8 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
-  const { clearJobForAccount } = useJob(); // Get the clear function
-  const API_URL = 'http://localhost:5006/api/accounts';
+  const { clearJobForAccount } = useJob();
+  const API_URL = 'http://localhost:5008/api/accounts';
 
   const fetchAccounts = async () => {
     setIsLoading(true);
@@ -53,7 +55,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
         setSelectedAccount(null);
       }
     } catch (error) {
-      toast({ title: "Error", description: "Could not fetch accounts.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not fetch accounts. Is backend running?", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -71,15 +73,16 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [selectedAccount]);
 
-  const addAccount = async (name: string, apiKey: string) => {
-    const response = await axios.post(API_URL, { name, apiKey });
+  const addAccount = async (name: string, siteUrl: string, username: string, appPassword: string) => {
+    const response = await axios.post(API_URL, { name, siteUrl, username, appPassword });
     const newAccount = response.data;
     setAccounts(prev => [...prev, newAccount]);
     setSelectedAccount(newAccount);
+    
     if (newAccount.status === 'valid') {
-      toast({ title: "Success", description: "Account added and key is valid!" });
+      toast({ title: "Success", description: "Connected to WordPress successfully!" });
     } else {
-      toast({ title: "Warning", description: "Account added, but the API Key is invalid.", variant: "destructive" });
+      toast({ title: "Warning", description: "Account added, but connection failed.", variant: "destructive" });
     }
   };
 
@@ -87,7 +90,6 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     await axios.delete(`${API_URL}/${accountId}`);
     toast({ title: "Success", description: "Account deleted." });
     
-    // Clear any job associated with the deleted account
     clearJobForAccount(accountId);
 
     const remainingAccounts = accounts.filter(acc => acc.id !== accountId);

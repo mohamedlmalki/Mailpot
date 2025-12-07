@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import axios from 'axios';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Tag } from 'lucide-react';
+import { Terminal, Loader2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -17,8 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-interface SystemIoTage {
-  id: number;
+interface MailPoetList {
+  id: string;
   name: string;
 }
 
@@ -26,43 +26,41 @@ const SingleImportPage = () => {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState('');
-  const [tags, setTags] = useState<SystemIoTage[]>([]);
-  const [selectedTagId, setSelectedTagId] = useState<string>('');
-  const [isLoadingTags, setIsLoadingTags] = useState(false);
+  const [lists, setLists] = useState<MailPoetList[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string>('');
+  const [isLoadingLists, setIsLoadingLists] = useState(false);
   
   const { selectedAccount } = useAccount();
 
-  // Fetch tags when account changes
+  // Fetch lists when account changes
   useEffect(() => {
-    const fetchTags = async () => {
-      if (!selectedAccount?.apiKey) {
-        setTags([]);
+    const fetchLists = async () => {
+      if (!selectedAccount) {
+        setLists([]);
         return;
       }
 
-      setIsLoadingTags(true);
+      setIsLoadingLists(true);
       try {
-        // Pass apiKey as query param as defined in backend
-        const res = await axios.get(`http://localhost:5006/api/tags?apiKey=${selectedAccount.apiKey}`);
-        // System.io returns { items: [...] } usually, but let's handle array directly or wrapped
-        const fetchedTags = res.data.items || res.data; 
-        setTags(Array.isArray(fetchedTags) ? fetchedTags : []);
+        const res = await axios.get(`http://localhost:5008/api/lists?accountId=${selectedAccount.id}`);
+        const fetchedLists = res.data; 
+        setLists(Array.isArray(fetchedLists) ? fetchedLists : []);
       } catch (error) {
-        console.error("Failed to fetch tags", error);
-        toast.error("Could not load tags from System.io");
+        console.error("Failed to fetch lists", error);
+        toast.error("Could not load MailPoet lists");
       } finally {
-        setIsLoadingTags(false);
+        setIsLoadingLists(false);
       }
     };
 
-    fetchTags();
+    fetchLists();
   }, [selectedAccount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedAccount) {
-      toast.error('Please select an account from the sidebar first.');
+      toast.error('Please select an account first.');
       return;
     }
 
@@ -75,44 +73,20 @@ const SingleImportPage = () => {
     setResponse('');
     
     try {
-      // 1. Create Contact
-      const contactPayload = { email: email };
-      const createRes = await axios.post('http://localhost:5006/api/contacts', {
-        apiKey: selectedAccount.apiKey,
-        ...contactPayload
-      });
+      const payload = { 
+        accountId: selectedAccount.id,
+        email: email,
+        list_id: selectedListId !== 'no-list' ? selectedListId : null
+      };
+
+      const createRes = await axios.post('http://localhost:5008/api/subscribers', payload);
       
-      const newContact = createRes.data;
-      let logOutput = `[SUCCESS] Contact Created:\n${JSON.stringify(newContact, null, 2)}`;
-
-      // 2. Assign Tag (if selected)
-      if (selectedTagId) {
-        // System.io usually returns the contact object which has an 'id' field
-        const contactId = newContact.id;
-        
-        if (contactId) {
-          logOutput += `\n\n[INFO] Assigning Tag ID: ${selectedTagId}...`;
-          try {
-            const tagRes = await axios.post(`http://localhost:5006/api/contacts/${contactId}/tags`, {
-              apiKey: selectedAccount.apiKey,
-              tagId: parseInt(selectedTagId) // Ensure it's a number/int as per docs
-            });
-            logOutput += `\n[SUCCESS] Tag Assigned:\n${JSON.stringify(tagRes.data, null, 2)}`;
-            toast.success('Subscriber added and tag assigned!');
-          } catch (tagError: any) {
-            logOutput += `\n[ERROR] Failed to assign tag: ${tagError.response?.data?.message || tagError.message}`;
-            toast.warning('Subscriber added, but failed to assign tag.');
-          }
-        } else {
-            logOutput += `\n[WARNING] Could not find Contact ID in response to assign tag.`;
-        }
-      } else {
-        toast.success('Subscriber added successfully!');
-      }
-
+      const subscriber = createRes.data.data; // Wrapper from PHP is { success: true, data: {} }
+      
+      const logOutput = `[SUCCESS] Subscriber Created:\n${JSON.stringify(subscriber, null, 2)}`;
       setResponse(logOutput);
-      setEmail(''); // Clear the email field
-      // We keep the selected tag for convenience, or you could clear it: setSelectedTagId('');
+      toast.success('Subscriber added successfully!');
+      setEmail(''); 
 
     } catch (error: any) {
       const errorData = error.response?.data || { message: "An unknown error occurred" };
@@ -127,7 +101,7 @@ const SingleImportPage = () => {
     <div className="p-6 max-w-2xl mx-auto">
        <div className="mb-6">
         <h1 className="text-3xl font-bold">Single Subscriber Import</h1>
-        <p className="text-muted-foreground">Add a single contact to your System.io list.</p>
+        <p className="text-muted-foreground">Add a single contact to your MailPoet list.</p>
       </div>
 
       {!selectedAccount && (
@@ -143,13 +117,12 @@ const SingleImportPage = () => {
       <Card>
         <CardHeader>
           <CardTitle>Add Contact</CardTitle>
-          <CardDescription>Enter the email address and optionally select a tag.</CardDescription>
+          <CardDescription>Enter the email address and select a list.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit}>
             <div className="grid w-full items-center gap-4">
               
-              {/* Email Input */}
               <div className="flex flex-col space-y-1.5">
                 <Label htmlFor="email">Email Address (Required)</Label>
                 <Input 
@@ -163,29 +136,25 @@ const SingleImportPage = () => {
                 />
               </div>
 
-              {/* Tag Selection */}
               <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="tag-select">Assign Tag (Optional)</Label>
+                <Label htmlFor="list-select">Assign to List (Optional)</Label>
                 <Select 
-                  value={selectedTagId} 
-                  onValueChange={setSelectedTagId} 
-                  disabled={!selectedAccount || isLoading || isLoadingTags}
+                  value={selectedListId} 
+                  onValueChange={setSelectedListId} 
+                  disabled={!selectedAccount || isLoading || isLoadingLists}
                 >
-                  <SelectTrigger id="tag-select">
-                    <SelectValue placeholder={isLoadingTags ? "Loading tags..." : "Select a tag to assign"} />
+                  <SelectTrigger id="list-select">
+                    <SelectValue placeholder={isLoadingLists ? "Loading lists..." : "Select a list"} />
                   </SelectTrigger>
                   <SelectContent>
-                     <SelectItem value="no-tag">-- No Tag --</SelectItem>
-                    {tags.map((tag) => (
-                      <SelectItem key={tag.id} value={tag.id.toString()}>
-                        {tag.name}
+                     <SelectItem value="no-list">-- No List --</SelectItem>
+                    {lists.map((list) => (
+                      <SelectItem key={list.id} value={list.id.toString()}>
+                        {list.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {tags.length === 0 && !isLoadingTags && selectedAccount && (
-                   <p className="text-xs text-muted-foreground">No tags found for this account.</p>
-                )}
               </div>
 
               <Button type="submit" disabled={isLoading || !selectedAccount}>

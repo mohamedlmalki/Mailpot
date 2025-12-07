@@ -4,6 +4,7 @@ import {
   Home, 
   UserPlus,
   Upload,
+  Users, // Import the Users icon
   Menu, 
   X,
   Sun,
@@ -50,6 +51,7 @@ const Navbar = () => {
     { title: 'Dashboard', path: '/', icon: Home },
     { title: 'Single Import', path: '/import/single', icon: UserPlus },
     { title: 'Bulk Import', path: '/import/bulk', icon: Upload },
+    { title: 'Subscribers', path: '/subscribers', icon: Users }, // NEW ITEM
   ];
 
   const isActive = (path: string) => {
@@ -78,7 +80,7 @@ const Navbar = () => {
         <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
           <Link to="/" className="flex items-center space-x-2">
             <MailOpen className="h-6 w-6 text-primary" />
-            <span className="text-lg font-bold text-sidebar-foreground">System.io Manager</span>
+            <span className="text-lg font-bold text-sidebar-foreground">MailPoet Manager</span>
           </Link>
           <div className="flex items-center gap-2">
             <button 
@@ -121,18 +123,6 @@ const Navbar = () => {
           </div>
 
         </nav>
-
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="flex items-center space-x-3 px-3 py-2">
-            <div className="w-8 h-8 bg-sidebar-accent rounded-full flex items-center justify-center">
-              <span className="text-sm font-medium">SY</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">User</p>
-              <p className="text-xs text-muted-foreground truncate">user@system.io</p>
-            </div>
-          </div>
-        </div>
       </aside>
 
       {isOpen && (

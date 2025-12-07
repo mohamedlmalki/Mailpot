@@ -7,12 +7,12 @@ const axios = require('axios');
 const short = require('short-uuid');
 
 const app = express();
-const PORT = process.env.PORT || 5006;
+const PORT = process.env.PORT || 5008;
 
 const dataDir = path.join(__dirname, 'data');
 const accountsFilePath = path.join(dataDir, 'accounts.json');
 
-// SETUP...
+// Ensure data directory and file exist
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir);
 }
@@ -24,7 +24,8 @@ if (!fs.existsSync(accountsFilePath)) {
 app.use(cors());
 app.use(express.json());
 
-// Helper functions
+// --- HELPER FUNCTIONS ---
+
 const readAccounts = () => {
   try {
     const data = fs.readFileSync(accountsFilePath);
@@ -43,47 +44,50 @@ const writeAccounts = (accounts) => {
   }
 };
 
-// **Helper function with the SYSTEM.IO API endpoint**
-const validateApiKey = async (apiKey) => {
+const getAccountById = (id) => {
+  const accounts = readAccounts();
+  return accounts.find(acc => acc.id === id);
+};
+
+const getAuthHeader = (username, password) => {
+  return 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+};
+
+// Validate connection to WordPress by fetching lists
+const validateWpConnection = async (siteUrl, username, password) => {
   try {
-    // **CORRECTED ENDPOINT: Use System.io community endpoint for validation**
-    const systemIoResponse = await axios.get('https://api.systeme.io/api/community/communities', {
-      headers: { 
-        'X-API-Key': apiKey,
-        'accept': 'application/json'
+    // Ensure no trailing slash
+    const baseUrl = siteUrl.replace(/\/$/, "");
+    const endpoint = `${baseUrl}/wp-json/custom-mailpoet/v1/lists`;
+
+    const response = await axios.get(endpoint, {
+      headers: {
+        'Authorization': getAuthHeader(username, password),
+        'Content-Type': 'application/json'
       }
     });
-    
+
     return {
       status: 'valid',
       validationMessage: JSON.stringify({
-        message: "API key is valid and connected successfully to System.io.",
-        statusCode: systemIoResponse.status,
-        originalResponse: systemIoResponse.data
+        message: "Connected successfully to MailPoet!",
+        listsFound: response.data.length,
+        statusCode: response.status
       }, null, 2),
     };
   } catch (error) {
-    console.error("API Validation Error:", error);
-
-    let errorMessage;
-    if (error.response) {
-      errorMessage = {
-        message: "System.io API returned an error.",
-        status: error.response.status,
-        data: error.response.data
-      };
-    } else if (error.request) {
-      errorMessage = {
-        message: "Network error: No response received from System.io API.",
-        request: "Check your internet connection and backend proxy/firewall settings."
-      };
-    } else {
-      errorMessage = {
-        message: "An unknown error occurred during the API request setup.",
-        error: error.message
-      };
-    }
+    console.error("WP Validation Error:", error.message);
     
+    let errorMessage = {
+        message: "Could not connect to WordPress site.",
+        error: error.message
+    };
+
+    if (error.response) {
+        errorMessage.status = error.response.status;
+        errorMessage.data = error.response.data;
+    }
+
     return {
       status: 'invalid',
       validationMessage: JSON.stringify(errorMessage, null, 2),
@@ -91,26 +95,33 @@ const validateApiKey = async (apiKey) => {
   }
 };
 
+// --- ROUTES ---
+
 // GET all accounts
 app.get('/api/accounts', (req, res) => {
   const accounts = readAccounts();
+  // Don't send passwords back to frontend if you want extra security, 
+  // but for a local tool, sending them is fine for the context to use.
   res.json(accounts);
 });
 
 // POST a new account
 app.post('/api/accounts', async (req, res) => {
-  const { name, apiKey } = req.body;
-  if (!name || !apiKey) {
-    return res.status(400).json({ message: 'Name and API key are required.' });
+  const { name, siteUrl, username, appPassword } = req.body;
+  
+  if (!name || !siteUrl || !username || !appPassword) {
+    return res.status(400).json({ message: 'All fields (Name, URL, Username, Password) are required.' });
   }
 
-  const { status, validationMessage } = await validateApiKey(apiKey);
+  const { status, validationMessage } = await validateWpConnection(siteUrl, username, appPassword);
 
   const accounts = readAccounts();
   const newAccount = {
     id: short.generate(),
     name,
-    apiKey,
+    siteUrl,
+    username,
+    appPassword,
     status,
     validationMessage
   };
@@ -120,7 +131,7 @@ app.post('/api/accounts', async (req, res) => {
   res.status(201).json(newAccount);
 });
 
-// PUT endpoint to re-validate a key
+// PUT endpoint to re-validate credentials
 app.put('/api/accounts/:id/validate', async (req, res) => {
   const accounts = readAccounts();
   const accountId = req.params.id;
@@ -130,11 +141,11 @@ app.put('/api/accounts/:id/validate', async (req, res) => {
     return res.status(404).json({ message: 'Account not found' });
   }
 
-  const accountToValidate = accounts[accountIndex];
-  const { status, validationMessage } = await validateApiKey(accountToValidate.apiKey);
+  const acc = accounts[accountIndex];
+  const { status, validationMessage } = await validateWpConnection(acc.siteUrl, acc.username, acc.appPassword);
   
   const updatedAccount = {
-    ...accountToValidate,
+    ...acc,
     status,
     validationMessage
   };
@@ -154,76 +165,114 @@ app.delete('/api/accounts/:id', (req, res) => {
   res.status(200).json({ message: 'Account deleted successfully' });
 });
 
-// **ENDPOINT TO CREATE A CONTACT IN SYSTEM.IO**
-app.post('/api/contacts', async (req, res) => {
-  const { apiKey, ...contactData } = req.body;
+// --- MAILPOET PROXY ENDPOINTS ---
 
-  if (!apiKey) {
-    return res.status(400).json({ message: "API Key is required." });
-  }
+// GET Lists (was Tags)
+app.get('/api/lists', async (req, res) => {
+  const { accountId } = req.query;
 
-  try {
-    // System.io creates contacts via POST /api/contacts
-    const response = await axios.post('https://api.systeme.io/api/contacts', contactData, {
-      headers: { 
-        'X-API-Key': apiKey,
-        'Content-Type': 'application/json',
-        'accept': 'application/json'
-      }
-    });
-    res.status(200).json(response.data);
-  } catch (error) {
-    console.error("System.io Contact Creation Error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).json(error.response?.data || { message: "An internal server error occurred." });
-  }
-});
-
-// **ENDPOINT TO GET TAGS**
-app.get('/api/tags', async (req, res) => {
-  const { apiKey } = req.query;
-
-  if (!apiKey) {
-    return res.status(400).json({ message: "API Key is required via query parameter." });
-  }
+  const account = getAccountById(accountId);
+  if (!account) return res.status(404).json({ message: "Account not found" });
 
   try {
-    const response = await axios.get('https://api.systeme.io/api/tags', {
+    const baseUrl = account.siteUrl.replace(/\/$/, "");
+    const response = await axios.get(`${baseUrl}/wp-json/custom-mailpoet/v1/lists`, {
       headers: {
-        'X-API-Key': apiKey,
-        'accept': 'application/json'
+        'Authorization': getAuthHeader(account.username, account.appPassword)
       }
     });
+    // Ensure we return an array structure the frontend expects
     res.status(200).json(response.data);
   } catch (error) {
-    console.error("System.io Get Tags Error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).json(error.response?.data || { message: "Failed to fetch tags." });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// **ENDPOINT TO ASSIGN TAG TO CONTACT**
-app.post('/api/contacts/:id/tags', async (req, res) => {
-  const { id } = req.params; // Contact ID
-  const { apiKey, tagId } = req.body;
+// POST Subscribe (Create Contact)
+app.post('/api/subscribers', async (req, res) => {
+  const { accountId, email, list_id, first_name, last_name } = req.body;
 
-  if (!apiKey || !tagId) {
-    return res.status(400).json({ message: "API Key and Tag ID are required." });
-  }
+  const account = getAccountById(accountId);
+  if (!account) return res.status(404).json({ message: "Account not found" });
 
   try {
-    const response = await axios.post(`https://api.systeme.io/api/contacts/${id}/tags`, { tagId: tagId }, {
+    const baseUrl = account.siteUrl.replace(/\/$/, "");
+    
+    // Prepare data for the WP plugin
+    const payload = {
+        email,
+        first_name: first_name || '',
+        last_name: last_name || '',
+        lists: list_id ? [list_id] : []
+    };
+
+    const response = await axios.post(`${baseUrl}/wp-json/custom-mailpoet/v1/subscribe`, payload, {
       headers: {
-        'X-API-Key': apiKey,
-        'Content-Type': 'application/json',
-        'accept': 'application/json'
+        'Authorization': getAuthHeader(account.username, account.appPassword),
+        'Content-Type': 'application/json'
+      }
+    });
+
+    res.status(200).json(response.data);
+  } catch (error) {
+    // Pass through the error from WP if possible
+    const errMsg = error.response?.data?.message || error.message;
+    res.status(error.response?.status || 500).json({ message: errMsg });
+  }
+});
+
+// NEW: GET All Subscribers (List View)
+app.get('/api/all-subscribers', async (req, res) => {
+  const { accountId, limit, offset } = req.query;
+
+  const account = getAccountById(accountId);
+  if (!account) return res.status(404).json({ message: "Account not found" });
+
+  try {
+    const baseUrl = account.siteUrl.replace(/\/$/, "");
+    const response = await axios.get(`${baseUrl}/wp-json/custom-mailpoet/v1/subscribers`, {
+      params: { 
+        limit: limit || 100,
+        offset: offset || 0
+      },
+      headers: {
+        'Authorization': getAuthHeader(account.username, account.appPassword)
       }
     });
     res.status(200).json(response.data);
   } catch (error) {
-    console.error("System.io Assign Tag Error:", error.response?.data || error.message);
-    res.status(error.response?.status || 500).json(error.response?.data || { message: "Failed to assign tag." });
+    const status = error.response?.status || 500;
+    const msg = error.response?.data?.message || error.message;
+    res.status(status).json({ message: msg });
   }
 });
+
+// FIXED: DELETE Subscriber
+app.delete('/api/subscriber', async (req, res) => {
+  const { accountId, email } = req.query;
+
+  const account = getAccountById(accountId);
+  if (!account) return res.status(404).json({ message: "Account not found" });
+
+  try {
+    const baseUrl = account.siteUrl.replace(/\/$/, "");
+    const response = await axios.delete(`${baseUrl}/wp-json/custom-mailpoet/v1/subscriber`, {
+      params: { email },
+      headers: {
+        'Authorization': getAuthHeader(account.username, account.appPassword)
+      }
+    });
+    res.status(200).json(response.data);
+  } catch (error) {
+    const status = error.response?.status || 500;
+    const msg = error.response?.data?.message || error.message;
+    res.status(status).json({ message: msg });
+  }
+});
+
+
+
 
 app.listen(PORT, () => {
-  console.log(`Backend server is running on http://localhost:${PORT}`);
+  console.log(`MailPoet Manager Backend running on http://localhost:${PORT}`);
 });

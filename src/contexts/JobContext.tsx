@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import axios from 'axios';
-import { useAccount } from './AccountContext';
 
-// Interface for a single import result
 interface ImportResult {
   id: number;
   email: string;
@@ -10,29 +8,26 @@ interface ImportResult {
   details: string;
 }
 
-// Interface for the state of a single import job
 interface Job {
-  id: string; // Corresponds to accountId
-  name: string; // Account name for display
-  apiKey: string;
+  id: string; // Account ID
+  name: string;
   emailList: string[];
-  tagId?: number; // Optional Tag ID to assign
+  listId?: string; // MailPoet List ID
   results: ImportResult[];
   currentIndex: number;
   isRunning: boolean;
   isPaused: boolean;
-  delay: number; // in seconds
+  delay: number;
   countdown: number;
   startTime: number | null;
   endTime: number | null;
-  pauseTime: number | null; // Track when a pause starts
-  totalPausedTime: number; // Accumulate total time spent paused
+  pauseTime: number | null;
+  totalPausedTime: number;
 }
 
-// Interface for the JobContext
 interface JobContextType {
   jobs: Record<string, Job>;
-  startJob: (accountId: string, name: string, apiKey: string, emails: string, delay: number, tagId?: string) => void;
+  startJob: (accountId: string, name: string, emails: string, delay: number, listId?: string) => void;
   pauseJob: (accountId: string) => void;
   resumeJob: (accountId: string) => void;
   stopJob: (accountId: string) => void;
@@ -49,12 +44,10 @@ export const useJob = () => {
   return context;
 };
 
-// The provider component
 export const JobProvider = ({ children }: { children: ReactNode }) => {
   const [jobs, setJobs] = useState<Record<string, Job>>({});
   const intervalRef = useRef<NodeJS.Timeout>();
 
-  // Main processing loop that runs every second
   useEffect(() => {
     intervalRef.current = setInterval(() => {
       setJobs(prevJobs => {
@@ -68,13 +61,11 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
             if (job.countdown > 0) {
               job.countdown -= 1;
             } else {
-              // Time to process the next item
               if (job.currentIndex < job.emailList.length) {
                 processQueueItem(job); 
                 job.currentIndex += 1;
                 job.countdown = job.delay;
               } else {
-                // Job finished
                 job.isRunning = false;
                 job.endTime = Date.now();
               }
@@ -88,51 +79,22 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
     return () => clearInterval(intervalRef.current);
   }, []);
 
-  // Function to process a single email import
   const processQueueItem = async (job: Job) => {
     const email = job.emailList[job.currentIndex];
     
-    // Updated payload for System.io - simple email object
-    const contactPayload = {
-      email: email
+    // We send accountId so backend can lookup credentials
+    const payload = {
+      accountId: job.id,
+      email: email,
+      list_id: job.listId
     };
     
     let newResult: ImportResult;
     try {
-      // 1. Create Contact
-      const createResponse = await axios.post('http://localhost:5006/api/contacts', {
-        apiKey: job.apiKey,
-        ...contactPayload
-      });
-
-      // STORE ORIGINAL RESPONSE (Formatted JSON)
-      let details = JSON.stringify(createResponse.data, null, 2);
-
-      // 2. Assign Tag (if tagId is present)
-      if (job.tagId) {
-        const contactId = createResponse.data.id;
-        if (contactId) {
-            try {
-                const tagRes = await axios.post(`http://localhost:5006/api/contacts/${contactId}/tags`, {
-                    apiKey: job.apiKey,
-                    tagId: job.tagId
-                });
-                // Append Tag Success Response
-                details += `\n\n[Tag Assigned]:\n${JSON.stringify(tagRes.data, null, 2)}`;
-            } catch (tagError: any) {
-                // Append Tag Error Response
-                const tagErrData = tagError.response?.data || { message: tagError.message };
-                details += `\n\n[Tag Failed]:\n${JSON.stringify(tagErrData, null, 2)}`;
-            }
-        } else {
-            details += '\n\n[Tag Failed]: No Contact ID returned in creation response to attach tag.';
-        }
-      }
-      
+      const response = await axios.post('http://localhost:5008/api/subscribers', payload);
+      const details = JSON.stringify(response.data, null, 2);
       newResult = { id: job.currentIndex + 1, email, status: 'success', details };
-
     } catch (error: any) {
-      // STORE ORIGINAL ERROR RESPONSE (Formatted JSON)
       const errorData = error.response?.data || { 
         message: error.message || "An unknown network error occurred",
         status: error.response?.status
@@ -142,7 +104,7 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
         id: job.currentIndex + 1, 
         email, 
         status: 'error', 
-        details: JSON.stringify(errorData, null, 2) // Capture the full object as string
+        details: JSON.stringify(errorData, null, 2) 
       };
     }
 
@@ -155,15 +117,15 @@ export const JobProvider = ({ children }: { children: ReactNode }) => {
     }));
   };
 
-  const startJob = (accountId: string, name: string, apiKey: string, emails: string, delay: number, tagId?: string) => {
+  const startJob = (accountId: string, name: string, emails: string, delay: number, listId?: string) => {
     const emailList = emails.split(/[\n,;]+/).map(e => e.trim()).filter(Boolean);
     if (emailList.length === 0) return;
 
     setJobs(prevJobs => ({
       ...prevJobs,
       [accountId]: {
-        id: accountId, name, apiKey, emailList, delay,
-        tagId: tagId && tagId !== "no-tag" ? parseInt(tagId) : undefined,
+        id: accountId, name, emailList, delay,
+        listId: listId && listId !== "no-list" ? listId : undefined,
         results: [],
         currentIndex: 0,
         isRunning: true,

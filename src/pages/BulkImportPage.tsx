@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Upload, Play, Pause, Square, Clock, Terminal, Download, CheckCircle, XCircle, Tag, Info } from 'lucide-react';
+import { Upload, Play, Pause, Square, Clock, Terminal, Download, CheckCircle, XCircle } from 'lucide-react';
 
-// UI Components
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
@@ -30,18 +29,16 @@ import {
   DialogDescription,
 } from "../components/ui/dialog";
 
-// Contexts
 import { useAccount } from '../contexts/AccountContext';
 import { useJob } from '../contexts/JobContext';
 
 type FilterStatus = 'all' | 'success' | 'error';
 
-interface SystemIoTage {
-  id: number;
+interface MailPoetList {
+  id: string;
   name: string;
 }
 
-// Helper to format time from seconds
 const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -52,71 +49,63 @@ const BulkImportPage = () => {
     const { selectedAccount } = useAccount();
     const { jobs, startJob, pauseJob, resumeJob, stopJob } = useJob();
 
-    // Local state for UI that isn't part of a running job
     const [emailListInput, setEmailListInput] = useState('');
-    const [delayInput, setDelayInput] = useState(1);
+    const [delayInput, setDelayInput] = useState(2); // Higher default delay for WP
     const [filter, setFilter] = useState<FilterStatus>('all');
     const [unstartedEmailLists, setUnstartedEmailLists] = useState<Record<string, string>>({});
     
-    // Tag State
-    const [tags, setTags] = useState<SystemIoTage[]>([]);
-    const [selectedTagId, setSelectedTagId] = useState<string>('no-tag');
-    const [isLoadingTags, setIsLoadingTags] = useState(false);
+    const [lists, setLists] = useState<MailPoetList[]>([]);
+    const [selectedListId, setSelectedListId] = useState<string>('no-list');
+    const [isLoadingLists, setIsLoadingLists] = useState(false);
 
-    // Dialog State for Status Details
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [selectedResult, setSelectedResult] = useState<any | null>(null);
 
-    // Ticker state to force re-render for the elapsed time display
     const [, setTicker] = useState(0);
 
     const currentJob = selectedAccount ? jobs[selectedAccount.id] : null;
     const isRunning = currentJob?.isRunning ?? false;
     
-    // Fetch Tags when account changes
+    // Fetch Lists
     useEffect(() => {
-        const fetchTags = async () => {
-          if (!selectedAccount?.apiKey) {
-            setTags([]);
+        const fetchLists = async () => {
+          if (!selectedAccount) {
+            setLists([]);
             return;
           }
     
-          setIsLoadingTags(true);
+          setIsLoadingLists(true);
           try {
-            const res = await axios.get(`http://localhost:5006/api/tags?apiKey=${selectedAccount.apiKey}`);
-            const fetchedTags = res.data.items || res.data; 
-            setTags(Array.isArray(fetchedTags) ? fetchedTags : []);
+            const res = await axios.get(`http://localhost:5008/api/lists?accountId=${selectedAccount.id}`);
+            const fetchedLists = res.data; 
+            setLists(Array.isArray(fetchedLists) ? fetchedLists : []);
           } catch (error) {
-            console.error("Failed to fetch tags", error);
-            toast.error("Could not load tags from System.io");
+            console.error("Failed to fetch lists", error);
+            toast.error("Could not load MailPoet lists");
           } finally {
-            setIsLoadingTags(false);
+            setIsLoadingLists(false);
           }
         };
     
-        fetchTags();
+        fetchLists();
     }, [selectedAccount]);
 
-    // Correctly load the state for the selected account
     useEffect(() => {
         if (selectedAccount) {
             const job = jobs[selectedAccount.id];
-            if (job) { // A job exists (running, paused, or stopped)
+            if (job) { 
                 setEmailListInput(job.emailList.join('\n'));
                 setDelayInput(job.delay);
-                // If job has a tag, set it (optional visual sync, though job state is source of truth)
-                if (job.tagId) setSelectedTagId(job.tagId.toString());
-            } else { // No job exists for this account, load from our temporary store
+                if (job.listId) setSelectedListId(job.listId);
+            } else { 
                 setEmailListInput(unstartedEmailLists[selectedAccount.id] || '');
             }
         } else {
-            // No account selected, clear the textarea
             setEmailListInput('');
-            setTags([]);
+            setLists([]);
         }
     }, [selectedAccount, jobs]);
 
-    // Timer logic
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
         if (currentJob?.isRunning && !currentJob.isPaused) {
@@ -125,7 +114,6 @@ const BulkImportPage = () => {
         return () => clearInterval(timer);
     }, [currentJob?.isRunning, currentJob?.isPaused]);
     
-    // Calculate derived state directly in the component body
     const calculateElapsedTime = () => {
         if (!currentJob?.startTime) return 0;
         const endTime = currentJob.endTime || (currentJob.isPaused ? currentJob.pauseTime : Date.now());
@@ -152,10 +140,8 @@ const BulkImportPage = () => {
         if (!selectedAccount) return toast.error('Please select an account first.');
         if (!emailListInput.trim()) return toast.error('Please provide at least one email address.');
         
-        // Pass the selectedTagId to the startJob function
-        startJob(selectedAccount.id, selectedAccount.name, selectedAccount.apiKey, emailListInput, delayInput, selectedTagId);
+        startJob(selectedAccount.id, selectedAccount.name, emailListInput, delayInput, selectedListId);
         
-        // Clear the unstarted list for this account now that the job has started
         setUnstartedEmailLists(prev => {
             const newLists = { ...prev };
             delete newLists[selectedAccount.id];
@@ -199,14 +185,13 @@ const BulkImportPage = () => {
         const blob = new Blob([emailsToExport], { type: 'text/plain;charset=utf-8' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `systemio_export_${selectedAccount?.name}_${filter}.txt`;
+        link.download = `mailpoet_export_${selectedAccount?.name}_${filter}.txt`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         toast.success(`Exported ${filteredResults.length} emails.`);
     };
     
-    // Handler for clicking the badge
     const handleStatusClick = (result: any) => {
         setSelectedResult(result);
         setDetailsOpen(true);
@@ -220,7 +205,6 @@ const BulkImportPage = () => {
                 <Badge 
                     className="bg-green-100 text-green-800 hover:bg-green-200 cursor-pointer transition-colors"
                     onClick={() => handleStatusClick(result)}
-                    title="Click to view response details"
                 >
                     Success
                 </Badge>
@@ -232,7 +216,6 @@ const BulkImportPage = () => {
                 variant="destructive" 
                 className="cursor-pointer hover:bg-red-600 transition-colors"
                 onClick={() => handleStatusClick(result)}
-                title="Click to view error details"
             >
                 Error
             </Badge>
@@ -247,7 +230,7 @@ const BulkImportPage = () => {
                 <Upload className="h-8 w-8 text-primary" />
                 <div>
                     <h1 className="text-3xl font-bold text-foreground">Bulk Subscriber Import</h1>
-                    <p className="text-muted-foreground">Manage concurrent import jobs for each account</p>
+                    <p className="text-muted-foreground">Manage concurrent import jobs for MailPoet</p>
                 </div>
             </div>
 
@@ -262,7 +245,7 @@ const BulkImportPage = () => {
             <Card>
                 <CardHeader>
                     <CardTitle>{selectedAccount ? `Job for: ${selectedAccount.name}` : 'Configuration & Results'}</CardTitle>
-                    <CardDescription>Each account has its own independent import job. Progress is saved when you switch accounts.</CardDescription>
+                    <CardDescription>Each account has its own independent import job.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-4">
@@ -270,7 +253,7 @@ const BulkImportPage = () => {
                             <Label htmlFor="emailList">Email List</Label>
                             <Textarea
                                 id="emailList"
-                                placeholder="Paste emails here to start a new job..."
+                                placeholder="Paste emails here..."
                                 className="h-48 mt-2"
                                 value={emailListInput}
                                 onChange={handleTextareaChange}
@@ -282,22 +265,21 @@ const BulkImportPage = () => {
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* TAG SELECTION */}
                             <div>
-                                <Label htmlFor="tag-select">Assign Tag (Optional)</Label>
+                                <Label htmlFor="list-select">Assign to List (Optional)</Label>
                                 <Select 
-                                    value={selectedTagId} 
-                                    onValueChange={setSelectedTagId} 
-                                    disabled={isRunning || isLoadingTags || !selectedAccount}
+                                    value={selectedListId} 
+                                    onValueChange={setSelectedListId} 
+                                    disabled={isRunning || isLoadingLists || !selectedAccount}
                                 >
-                                    <SelectTrigger id="tag-select" className="mt-2">
-                                        <SelectValue placeholder={isLoadingTags ? "Loading tags..." : "Select Tag"} />
+                                    <SelectTrigger id="list-select" className="mt-2">
+                                        <SelectValue placeholder={isLoadingLists ? "Loading lists..." : "Select List"} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="no-tag">-- No Tag --</SelectItem>
-                                        {tags.map((tag) => (
-                                            <SelectItem key={tag.id} value={tag.id.toString()}>
-                                                {tag.name}
+                                        <SelectItem value="no-list">-- No List --</SelectItem>
+                                        {lists.map((list) => (
+                                            <SelectItem key={list.id} value={list.id.toString()}>
+                                                {list.name}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -380,11 +362,6 @@ const BulkImportPage = () => {
                                         {!isRunning && currentJob.currentIndex > 0 && <span className="font-bold text-gray-500">Finished</span>}
                                     </div>
                                     <Progress value={progress} />
-                                    {currentJob.tagId && (
-                                         <div className="flex items-center gap-1 mt-1 text-xs text-blue-600">
-                                            <Tag className="h-3 w-3" /> Tagging active
-                                         </div>
-                                    )}
                                 </div>
                             </div>
                         )}
@@ -422,7 +399,6 @@ const BulkImportPage = () => {
                 </CardContent>
             </Card>
 
-            {/* DETAILS DIALOG */}
             <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
                 <DialogContent className="max-w-lg">
                     <DialogHeader>

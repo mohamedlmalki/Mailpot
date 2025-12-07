@@ -13,38 +13,37 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { useToast } from './ui/use-toast';
-import { useAccount } from '@/contexts/AccountContext';
-import { useJob } from '@/contexts/JobContext'; // Import the job hook
-
-interface Account {
-  id: string;
-  name: string;
-  apiKey: string;
-  status: 'valid' | 'invalid' | 'unchecked';
-  validationMessage?: string;
-}
+import { useAccount, Account } from '@/contexts/AccountContext';
+import { useJob } from '@/contexts/JobContext';
 
 const AccountDropdown = () => {
   const { accounts, selectedAccount, setSelectedAccount, addAccount, deleteAccount, validateKey } = useAccount();
-  const { jobs } = useJob(); // Get the state of all jobs
+  const { jobs } = useJob();
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isStatusDialogOpen, setIsStatusDialogOpen] = useState(false);
   const [statusDialogMessage, setStatusDialogMessage] = useState('');
+  
+  // New State for MailPoet/WP fields
   const [newAccountName, setNewAccountName] = useState('');
-  const [newApiKey, setNewApiKey] = useState('');
+  const [newSiteUrl, setNewSiteUrl] = useState('');
+  const [newUsername, setNewUsername] = useState('');
+  const [newAppPassword, setNewAppPassword] = useState('');
+  
   const [isTestingKey, setIsTestingKey] = useState(false);
   const { toast } = useToast();
 
   const handleAddAccount = async () => {
-    if (!newAccountName || !newApiKey) {
+    if (!newAccountName || !newSiteUrl || !newUsername || !newAppPassword) {
       toast({ title: "Error", description: "Please fill in all fields.", variant: "destructive" });
       return;
     }
     try {
-      await addAccount(newAccountName, newApiKey);
+      await addAccount(newAccountName, newSiteUrl, newUsername, newAppPassword);
       setNewAccountName('');
-      setNewApiKey('');
+      setNewSiteUrl('');
+      setNewUsername('');
+      setNewAppPassword('');
       setIsAddDialogOpen(false);
     } catch (error) {
        toast({ title: "Error", description: "Could not save account.", variant: "destructive" });
@@ -63,16 +62,16 @@ const AccountDropdown = () => {
   const handleValidateKey = async (e: React.MouseEvent, account: Account) => {
     e.stopPropagation();
     setIsTestingKey(true);
-    setStatusDialogMessage('Validating key against System.io API...');
+    setStatusDialogMessage('Connecting to WordPress...');
     setIsStatusDialogOpen(true);
 
     try {
       const updatedAccount = await validateKey(account);
       setStatusDialogMessage(updatedAccount.validationMessage || '{}');
-      toast({ title: "Validation Complete", description: `API Key is ${updatedAccount.status}.` });
+      toast({ title: "Validation Complete", description: `Connection is ${updatedAccount.status}.` });
     } catch (error) {
-      setStatusDialogMessage('{ "error": "Failed to validate the API key." }');
-      toast({ title: "Error", description: "Could not validate key.", variant: "destructive" });
+      setStatusDialogMessage('Failed to validate connection.');
+      toast({ title: "Error", description: "Could not validate connection.", variant: "destructive" });
     } finally {
       setIsTestingKey(false);
     }
@@ -84,13 +83,10 @@ const AccountDropdown = () => {
     return null;
   };
   
-  // Helper function to get the status text for a job
   const getJobStatusText = (job: any) => {
     if (!job) return null;
-    
     const total = job.emailList.length;
     let statusText = '';
-    
     if (job.isRunning && job.isPaused) statusText = 'Paused';
     else if (job.isRunning) statusText = 'Processing';
     else if (!job.isRunning && job.currentIndex > 0 && job.currentIndex >= total) statusText = 'Finished';
@@ -118,7 +114,7 @@ const AccountDropdown = () => {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-64">
-            <DropdownMenuLabel>My Accounts</DropdownMenuLabel>
+            <DropdownMenuLabel>My Websites</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {accounts.map((account) => {
                 const job = jobs[account.id];
@@ -142,7 +138,7 @@ const AccountDropdown = () => {
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setIsAddDialogOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" />
-              Add New Account
+              Add WordPress Site
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -157,23 +153,31 @@ const AccountDropdown = () => {
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogContent>
             <DialogHeader>
-                <DialogTitle>Add New Account</DialogTitle>
+                <DialogTitle>Add WordPress Site</DialogTitle>
                 <DialogDescription>
-                    Enter a name and API key for a new System.io account.
+                    Connect to a WordPress site with the MailPoet API plugin installed.
                 </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="name" className="text-right">Name</Label>
-                    <Input id="name" value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} className="col-span-3"/>
+                    <Input id="name" placeholder="My Blog" value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} className="col-span-3"/>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="apiKey" className="text-right">API Key</Label>
-                    <Input id="apiKey" value={newApiKey} onChange={(e) => setNewApiKey(e.target.value)} className="col-span-3"/>
+                    <Label htmlFor="url" className="text-right">Site URL</Label>
+                    <Input id="url" placeholder="https://example.com" value={newSiteUrl} onChange={(e) => setNewSiteUrl(e.target.value)} className="col-span-3"/>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="user" className="text-right">Username</Label>
+                    <Input id="user" placeholder="admin" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} className="col-span-3"/>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="pass" className="text-right">App Pass</Label>
+                    <Input id="pass" type="password" placeholder="xxxx xxxx xxxx xxxx" value={newAppPassword} onChange={(e) => setNewAppPassword(e.target.value)} className="col-span-3"/>
                 </div>
             </div>
             <DialogFooter>
-                <Button onClick={handleAddAccount}>Save Account</Button>
+                <Button onClick={handleAddAccount}>Connect Site</Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -181,10 +185,7 @@ const AccountDropdown = () => {
       <Dialog open={isStatusDialogOpen} onOpenChange={setIsStatusDialogOpen}>
        <DialogContent>
           <DialogHeader>
-            <DialogTitle>API Key Status</DialogTitle>
-            <DialogDescription>
-              This is the live response from the System.io API.
-            </DialogDescription>
+            <DialogTitle>Connection Status</DialogTitle>
           </DialogHeader>
           <div className="py-4 font-mono bg-muted p-4 rounded-md text-sm">
             {isTestingKey ? (
